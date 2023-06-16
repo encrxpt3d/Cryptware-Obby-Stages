@@ -1,18 +1,25 @@
+-- CryptServer module
 local CryptServer = {}
 
+-- Stores the system definitions
 local systems = {}
+
+-- Stores the client system definitions
 local clientSystems = {}
 
+-- Represents the definition of a system
 type SystemDef = {
 	Name: string,
 	[any]: any
 }
 
+-- Represents the definition of exposes for a client system
 type ExposeDef = {
 	RE: { [any]: string } | any,
 	RF: { [any]: string } | any,
 }
 
+-- Represents a system instance
 type System = {
 	Name: string,
 	Util: { [any]: any },
@@ -20,16 +27,20 @@ type System = {
 }
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 
+-- Invalid expose names that cannot be used
 local InvalidExposeName = { "_Comm", "Name" }
+
+-- Utility functions
 local Util = {}
 
+-- Flags to track initialization and startup status
 local initialized = false
 local created = false
 local started = false
 local ready = false
 
+-- Initializes the utility module cache
 local function initUtil()
 	for _, module in script.Parent.Parent:GetChildren() do
 		if module:IsA("ModuleScript") and module.Name ~= "Crypt" then
@@ -38,6 +49,7 @@ local function initUtil()
 	end
 end
 
+-- Validates an expose name to ensure it's not in the invalid list
 local function validateExposeName(exposeName)
 	if table.find(InvalidExposeName, exposeName) then
 		return false
@@ -45,12 +57,14 @@ local function validateExposeName(exposeName)
 	return true
 end
 
+-- Creates the CMiddleware remote function
 local function createMiddleware()
 	local mdw = Instance.new("RemoteFunction")
 	mdw.Name = "CMiddleware"
 	mdw.Parent = script.Parent
 end
 
+-- Creates the Systems folder if it doesn't exist
 local function createSystemsFolder()
 	if script.Parent:FindFirstChild("Systems") then
 		return
@@ -61,6 +75,7 @@ local function createSystemsFolder()
 	systemFolder.Parent = script.Parent
 end
 
+-- Creates a system folder for the given system name
 local function createSystemFolder(systemName)
 	local systemsFolder = script.Parent.Systems
 
@@ -74,6 +89,7 @@ local function createSystemFolder(systemName)
 	end
 end
 
+-- Creates a signal (RemoteEvent or RemoteFunction) for a client system
 local function createSignal(clientSystem, commName, instanceType)
 	local signal = Instance.new(instanceType)
 	signal.Name = commName
@@ -86,22 +102,24 @@ local function createSignal(clientSystem, commName, instanceType)
 	return signal
 end
 
+-- Initializes a signal for a client system
 local function initSignal(clientSystem, commName, instanceType)
 	assert(not clientSystem._Comm[commName], "Cannot have duplicate comm names")
 	return createSignal(clientSystem, commName, instanceType)
 end
 
+-- Initializes all the signals for client systems
 local function initSignals()
 	script.Parent.CMiddleware.OnServerInvoke = function()
 		if not ready then
-			repeat task.wait()
-			until ready
+			repeat task.wait() until ready
 		end
 
 		return clientSystems
 	end
 end
 
+-- Finds the system with a name containing "Data"
 local function findData()
 	for _, system: System in systems do
 		if system.Name:match("Data") then
@@ -111,9 +129,10 @@ local function findData()
 	return nil
 end
 
+-- Initializes the data system and handles player-related events
 local function initData()
 	local ds = findData()
-	local runMode = RunService:IsStudio() and RunService:IsRunMode() and #Players:GetPlayers()
+	local runMode = game:GetService("RunService"):IsRunMode() and #Players:GetPlayers() == 0
 	
 	if runMode then
 		task.wait(3)
@@ -160,13 +179,15 @@ local function initData()
 	return ds
 end
 
+-- Includes all modules from a specified path
 function CryptServer.Include(path: Folder)
 	for _, module in path:GetChildren() do
-		local s, e =  pcall(require, module)
+		local s, e = pcall(require, module)
 		if not s then warn(e) end
 	end
 end
 
+-- Adds utility modules from a specified path to all systems
 function CryptServer.Utils(path: Folder)
 	local utils = {}
 	for _, module in path:GetChildren() do
@@ -179,10 +200,12 @@ function CryptServer.Utils(path: Folder)
 	end
 end
 
+-- Registers a system and its definitions
 function CryptServer.Register(systemDef: SystemDef): System
 	local system = systemDef
 	system.Util = Util
 
+	-- Defines the Expose function for exposing system methods to clients
 	function system.Expose(exposeDef: ExposeDef)
 		assert(not clientSystems[system.Name], "Cannot expose the system more than once")
 		
@@ -203,12 +226,17 @@ function CryptServer.Register(systemDef: SystemDef): System
 					local signal: RemoteEvent = initSignal(clientSystem, exposeName, "RemoteEvent")
 					system[exposeName] = {}
 
+					-- Connects a callback function to the remote event
 					system[exposeName].Connect = function(_, callback)
 						signal.OnServerEvent:Connect(callback)
 					end
+
+					-- Fires the remote event on a specific client
 					system[exposeName].Fire = function(_, player: Player, ...)
 						signal:FireClient(player, ...)
 					end
+
+					-- Fires the remote event on all clients
 					system[exposeName].FireAll = function(_, ...)
 						signal:FireAllClients(...)
 					end
@@ -219,6 +247,7 @@ function CryptServer.Register(systemDef: SystemDef): System
 
 					local signal: RemoteFunction = initSignal(clientSystem, exposeName, "RemoteFunction")
 
+					-- Sets the server-side invoke function for the remote function
 					signal.OnServerInvoke = function(...)
 						return system[exposeName](system, ...)
 					end
@@ -235,10 +264,12 @@ function CryptServer.Register(systemDef: SystemDef): System
 	return system
 end
 
+-- Imports a registered system by name
 function CryptServer.Import(system: string)
 	return systems[system]
 end
 
+-- Starts the CryptServer
 function CryptServer.Start()
 	assert(not started, "Cannot start Crypt: Already started!")
 	started = true
@@ -288,6 +319,7 @@ function CryptServer.Start()
 	ready = true
 end
 
+-- Initialization logic
 if not initialized then
 	initialized = true
 	initUtil()
@@ -298,4 +330,5 @@ if not created then
 	createSystemsFolder()
 end
 
+-- Returns the CryptServer module
 return CryptServer
